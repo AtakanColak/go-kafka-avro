@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/linkedin/goavro/v2"
 	"io"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"time"
+
+	"github.com/linkedin/goavro/v2"
 )
 
 // SchemaRegistryClientInterface defines the api for all clients interfacing with schema registry
@@ -113,6 +114,34 @@ func (client *SchemaRegistryClient) GetVersions(subject string) ([]int, error) {
 	return result, err
 }
 
+// GetFullInfo for a subject
+func (client *SchemaRegistryClient) GetFullInfo(subject string) (version int, scheme string, id int, err error) {
+	resp, err := client.httpCall("GET", fmt.Sprintf(subjectByVersion, subject, latestVersion), nil)
+	if nil != err {
+		return -1, "", -1, err
+	}
+	var schema = new(schemaVersionResponse)
+	err = json.Unmarshal(resp, &schema)
+	if nil != err {
+		return -1, "", -1, err
+	}
+	return schema.Version, schema.Schema, schema.ID, err
+}
+
+// GetSchemaID returns the schema ID for a given schema
+func (client *SchemaRegistryClient) GetSchemaID(subject string) (int, error) {
+	resp, err := client.httpCall("GET", fmt.Sprintf(subjectByVersion, subject, latestVersion), nil)
+	if nil != err {
+		return -1, err
+	}
+	var schema = new(schemaVersionResponse)
+	err = json.Unmarshal(resp, &schema)
+	if nil != err {
+		return -1, err
+	}
+	return schema.ID, nil
+}
+
 func (client *SchemaRegistryClient) getSchemaByVersionInternal(subject string, version string) (*goavro.Codec, error) {
 	resp, err := client.httpCall("GET", fmt.Sprintf(subjectByVersion, subject, version), nil)
 	if nil != err {
@@ -198,7 +227,7 @@ func (client *SchemaRegistryClient) httpCall(method, uri string, payload io.Read
 		url := fmt.Sprintf("%s%s", client.SchemaRegistryConnect[(i+offset)%nServers], uri)
 		req, err := http.NewRequest(method, url, payload)
 		if err != nil {
-			return nil, err
+			return nil, wrap("new request", err)
 		}
 		req.Header.Set("Content-Type", contentType)
 		resp, err := client.httpClient.Do(req)
@@ -209,10 +238,10 @@ func (client *SchemaRegistryClient) httpCall(method, uri string, payload io.Read
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return nil, wrap("resp", err)
 		}
 		if !okStatus(resp) {
-			return nil, newError(resp)
+			return nil, wrap("not ok status", newError(resp))
 		}
 		return ioutil.ReadAll(resp.Body)
 	}
